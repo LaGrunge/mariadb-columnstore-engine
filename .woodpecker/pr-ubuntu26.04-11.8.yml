@@ -28,16 +28,12 @@ steps:
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - echo running on $${CI_MACHINE}
   - echo "https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Instances:search=:$${CI_MACHINE};v=3;%24case=tags:true%5C,client:false;%24regex=tags:false%5C,client:false;sort=desc:launchTime"
-  - ': "$${SERVER_REF:=11.8-enterprise}"'
-  - ': "$${SERVER_REMOTE:=https://github.com/mariadb-corporation/MariaDBEnterprise}"'
-  - ': "$${SERVER_SHA:=11.8-enterprise}"'
+  - ': "$${SERVER_REF:=11.8}"'
+  - ': "$${SERVER_REMOTE:=https://github.com/MariaDB/server}"'
+  - ': "$${SERVER_SHA:=11.8}"'
   - export SERVER_REF SERVER_REMOTE SERVER_SHA
   - echo $$SERVER_REF
   - echo $$SERVER_REMOTE
-  - ': "$${GITHUB_TOKEN:?github_token secret is required to clone https://github.com/mariadb-corporation/MariaDBEnterprise}"'
-  - printf "machine github.com login x-access-token password %s\n" "$$GITHUB_TOKEN"
-    > $$HOME/.netrc
-  - chmod 600 $$HOME/.netrc
   - rm -rf /mdb/* || true
   - mkdir -p /mdb/verylongdirnameforverystrangecpackbehavior && cd /mdb/verylongdirnameforverystrangecpackbehavior
   - 'git config --global url."https://github.com/".insteadOf git@github.com:'
@@ -52,8 +48,6 @@ steps:
   depends_on:
   - check-jsonnet-ymls-sync
   environment:
-    GITHUB_TOKEN:
-      from_secret: github_token
     SERVER_REF: ${SERVER_REF}
     SERVER_REMOTE: ${SERVER_REMOTE}
     SERVER_SHA: ${SERVER_SHA}
@@ -63,12 +57,16 @@ steps:
   - mkdir -p "$${CI_WORKSPACE}/../mdb"
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
-  - mkdir /mdb/verylongdirnameforverystrangecpackbehavior/rockylinux9
+  - mkdir /mdb/verylongdirnameforverystrangecpackbehavior/ubuntu26.04
+  - export SCCACHE_BUCKET="$${STRATIM_SCCACHE_BUCKET:-cs-sccache}"
+  - export SCCACHE_REGION=us-east-1
+  - export SCCACHE_S3_USE_SSL=true
+  - export SCCACHE_S3_KEY_PREFIX="$${STRATIM_SCCACHE_BUCKET:+sccache/$${CI_REPO}/}ubuntu26.04stable-23.1011.8amd64"
   - bash -c "set -o pipefail && bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/bootstrap_mcs.sh
-    --build-type RelWithDebInfo --distro rockylinux:9 --build-packages --install-deps
+    --build-type RelWithDebInfo --distro ubuntu:26.04 --build-packages --install-deps
     --sccache --build-path /mdb/verylongdirnameforverystrangecpackbehavior/builddir    2>&1
     | bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/ansi2txt.sh
-    /mdb/verylongdirnameforverystrangecpackbehavior/rockylinux9/build.log "
+    /mdb/verylongdirnameforverystrangecpackbehavior/ubuntu26.04/build.log "
   depends_on:
   - clone-mdb
   environment:
@@ -79,11 +77,7 @@ steps:
     AWS_SECRET_ACCESS_KEY:
       from_secret: aws_secret_access_key
     DEBIAN_FRONTEND: noninteractive
-    SCCACHE_BUCKET: cs-sccache
-    SCCACHE_REGION: us-east-1
-    SCCACHE_S3_KEY_PREFIX: rockylinux9stable-23.1011.8-enterpriseamd64
-    SCCACHE_S3_USE_SSL: 'true'
-  image: detravi/rockylinux:9
+  image: detravi/ubuntu:26.04
   name: build
 - commands:
   - mkdir -p "$${CI_WORKSPACE}/../mdb"
@@ -91,23 +85,23 @@ steps:
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - export CMAPI_GIT_REVISION="$${CI_COMMIT_SHA}"
   - bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/build_cmapi.sh  --distro
-    rockylinux:9
+    ubuntu:26.04
   depends_on:
   - clone-mdb
   environment:
     DEBIAN_FRONTEND: noninteractive
-  image: detravi/rockylinux:9
+  image: detravi/ubuntu:26.04
   name: cmapi-build
 - commands:
   - mkdir -p "$${CI_WORKSPACE}/../mdb"
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/createrepo.sh  --result
-    rockylinux9
+    ubuntu26.04
   depends_on:
   - build
   - cmapi-build
-  image: detravi/rockylinux:9
+  image: detravi/ubuntu:26.04
   name: createrepo
   when:
   - status:
@@ -117,8 +111,8 @@ steps:
   - mkdir -p "$${CI_WORKSPACE}/../mdb"
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
-  - ': "$${SERVER_REF:=11.8-enterprise}"'
-  - ': "$${SERVER_REMOTE:=https://github.com/mariadb-corporation/MariaDBEnterprise}"'
+  - ': "$${SERVER_REF:=11.8}"'
+  - ': "$${SERVER_REMOTE:=https://github.com/MariaDB/server}"'
   - cd /mdb/verylongdirnameforverystrangecpackbehavior
   - 'echo "engine: $${CI_COMMIT_SHA}" > buildinfo.txt'
   - 'echo "server: $$(git rev-parse HEAD)" >> buildinfo.txt'
@@ -127,11 +121,11 @@ steps:
   - 'echo "serverRepo: $$SERVER_REMOTE" >> buildinfo.txt'
   - 'echo "engineBranch: $${CI_COMMIT_SOURCE_BRANCH}" >> buildinfo.txt'
   - 'echo "engineRepo: $${CI_REPO_URL}" >> buildinfo.txt'
-  - mv buildinfo.txt ./rockylinux9/
-  - yes | cp -vr ./rockylinux9/. "$${CI_WORKSPACE}/rockylinux9/"
-  - ls -l "$${CI_WORKSPACE}/rockylinux9"
+  - mv buildinfo.txt ./ubuntu26.04/
+  - yes | cp -vr ./ubuntu26.04/. "$${CI_WORKSPACE}/ubuntu26.04/"
+  - ls -l "$${CI_WORKSPACE}/ubuntu26.04"
   - echo "check columnstore package:"
-  - ls -l "$${CI_WORKSPACE}/rockylinux9" | grep columnstore
+  - ls -l "$${CI_WORKSPACE}/ubuntu26.04" | grep columnstore
   depends_on:
   - createrepo
   environment:
@@ -148,15 +142,15 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sleep 10
-  - ls -lR rockylinux9
+  - ls -lR ubuntu26.04
   - source /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/VERSION
     && CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH}
-    && aws s3 rm s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/
+    && aws s3 rm $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/
     --recursive --exclude "*" --include "*columnstore*.deb" --include "*columnstore*.rpm"
     --exclude "*$${CURRENT_VERSION}*.deb" --exclude "*$${CURRENT_VERSION}*.rpm" --only-show-errors
-  - aws s3 sync rockylinux9/ s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9
+  - aws s3 sync ubuntu26.04/ $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04
     --only-show-errors
-  - 'echo "Data uploaded to: https://cspkg.s3.amazonaws.com/index.html?prefix=stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/"'
+  - 'echo "Data uploaded to: $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/"'
   depends_on:
   - cmapi-build
   - createrepo
@@ -178,15 +172,15 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sleep 10
-  - ls -lR rockylinux9
+  - ls -lR ubuntu26.04
   - source /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/VERSION
     && CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH}
-    && aws s3 rm s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/
+    && aws s3 rm $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/
     --recursive --exclude "*" --include "*columnstore*.deb" --include "*columnstore*.rpm"
     --exclude "*$${CURRENT_VERSION}*.deb" --exclude "*$${CURRENT_VERSION}*.rpm" --only-show-errors
-  - aws s3 sync rockylinux9/ s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9
+  - aws s3 sync ubuntu26.04/ $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04
     --only-show-errors
-  - 'echo "Data uploaded to: https://cspkg.s3.amazonaws.com/index.html?prefix=stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/"'
+  - 'echo "Data uploaded to: $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/"'
   depends_on:
   - pkg
   - createrepo
@@ -208,11 +202,11 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sh -c "apk add bash && timeout 1800 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/prepare_test_container.sh  --container-name
-    smoke-rockylinux9$${CI_PIPELINE_NUMBER} --docker-image detravi/rockylinux:9 --result-path
-    rockylinux9 --packages-url https://cspkg.s3.amazonaws.com/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise
+    smoke-ubuntu26.04$${CI_PIPELINE_NUMBER} --docker-image detravi/ubuntu:26.04 --result-path
+    ubuntu26.04 --packages-url $${STRATIM_PKGS_URL:-https://cspkg.s3.amazonaws.com}$${STRATIM_PKGS_URL:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8
     --do-setup true --do-install true --do-install-builddeps true"
   - timeout 1800 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/run_smoke.sh  --container-name
-    smoke-rockylinux9$${CI_PIPELINE_NUMBER}
+    smoke-ubuntu26.04$${CI_PIPELINE_NUMBER}
   depends_on:
   - publish-pkg
   image: docker:28.2.2
@@ -224,7 +218,7 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sh -c "apk add bash && bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/report_test_stage.sh  --container-name
-    smoke-rockylinux9$${CI_PIPELINE_NUMBER} --result-path rockylinux9 --stage smoke"
+    smoke-ubuntu26.04$${CI_PIPELINE_NUMBER} --result-path ubuntu26.04 --stage smoke"
   depends_on:
   - smoke
   image: docker:28.2.2
@@ -240,15 +234,15 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sleep 10
-  - ls -lR rockylinux9
+  - ls -lR ubuntu26.04
   - source /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/VERSION
     && CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH}
-    && aws s3 rm s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/
+    && aws s3 rm $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/
     --recursive --exclude "*" --include "*columnstore*.deb" --include "*columnstore*.rpm"
     --exclude "*$${CURRENT_VERSION}*.deb" --exclude "*$${CURRENT_VERSION}*.rpm" --only-show-errors
-  - aws s3 sync rockylinux9/ s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9
+  - aws s3 sync ubuntu26.04/ $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04
     --only-show-errors
-  - 'echo "Data uploaded to: https://cspkg.s3.amazonaws.com/index.html?prefix=stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/"'
+  - 'echo "Data uploaded to: $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/"'
   depends_on:
   - smokelog
   - createrepo
@@ -270,11 +264,11 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sh -c "apk add bash && timeout 1800 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/prepare_test_container.sh  --container-name
-    cmapi-rockylinux9$${CI_PIPELINE_NUMBER} --docker-image detravi/rockylinux:9 --result-path
-    rockylinux9 --packages-url https://cspkg.s3.amazonaws.com/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise
+    cmapi-ubuntu26.04$${CI_PIPELINE_NUMBER} --docker-image detravi/ubuntu:26.04 --result-path
+    ubuntu26.04 --packages-url $${STRATIM_PKGS_URL:-https://cspkg.s3.amazonaws.com}$${STRATIM_PKGS_URL:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8
     --do-setup true --do-install true --do-install-builddeps true"
   - apk add bash && timeout 3600 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/run_cmapi_test.sh  --container-name
-    cmapi-rockylinux9$${CI_PIPELINE_NUMBER} --pkg-format rpm
+    cmapi-ubuntu26.04$${CI_PIPELINE_NUMBER} --pkg-format deb
   depends_on:
   - publish-cmapi-build
   environment:
@@ -288,7 +282,7 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sh -c "apk add bash && bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/report_test_stage.sh  --container-name
-    cmapi-rockylinux9$${CI_PIPELINE_NUMBER} --result-path rockylinux9 --stage cmapi"
+    cmapi-ubuntu26.04$${CI_PIPELINE_NUMBER} --result-path ubuntu26.04 --stage cmapi"
   depends_on:
   - cmapi-test
   image: docker:28.2.2
@@ -304,15 +298,15 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sleep 10
-  - ls -lR rockylinux9
+  - ls -lR ubuntu26.04
   - source /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/VERSION
     && CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH}
-    && aws s3 rm s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/
+    && aws s3 rm $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/
     --recursive --exclude "*" --include "*columnstore*.deb" --include "*columnstore*.rpm"
     --exclude "*$${CURRENT_VERSION}*.deb" --exclude "*$${CURRENT_VERSION}*.rpm" --only-show-errors
-  - aws s3 sync rockylinux9/ s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9
+  - aws s3 sync ubuntu26.04/ $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04
     --only-show-errors
-  - 'echo "Data uploaded to: https://cspkg.s3.amazonaws.com/index.html?prefix=stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/"'
+  - 'echo "Data uploaded to: $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/"'
   depends_on:
   - cmapilog
   - createrepo
@@ -335,11 +329,11 @@ steps:
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - ': "$${MTR_FULL_SUITE:=false}"'
   - sh -c "apk add bash && timeout 1800 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/prepare_test_container.sh  --container-name
-    mtr-rockylinux9$${CI_PIPELINE_NUMBER} --docker-image detravi/rockylinux:9 --result-path
-    rockylinux9 --packages-url https://cspkg.s3.amazonaws.com/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise
+    mtr-ubuntu26.04$${CI_PIPELINE_NUMBER} --docker-image detravi/ubuntu:26.04 --result-path
+    ubuntu26.04 --packages-url $${STRATIM_PKGS_URL:-https://cspkg.s3.amazonaws.com}$${STRATIM_PKGS_URL:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8
     --do-setup true --do-install true --do-install-builddeps true"
   - apk add bash && timeout 18000 bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/run_mtr.sh  --container-name
-    mtr-rockylinux9$${CI_PIPELINE_NUMBER} --distro rockylinux:9 --run-as-extern --triggering-event
+    mtr-ubuntu26.04$${CI_PIPELINE_NUMBER} --distro ubuntu:26.04 --run-as-extern --triggering-event
     pull_request --full-mtr $${MTR_FULL_SUITE}
   depends_on:
   - smoke
@@ -354,7 +348,7 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sh -c "apk add bash && bash /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/build/report_test_stage.sh  --container-name
-    mtr-rockylinux9$${CI_PIPELINE_NUMBER} --result-path rockylinux9 --stage mtr"
+    mtr-ubuntu26.04$${CI_PIPELINE_NUMBER} --result-path ubuntu26.04 --stage mtr"
   depends_on:
   - mtr
   image: docker:28.2.2
@@ -370,15 +364,15 @@ steps:
   - rm -rf /mdb
   - ln -s "$${CI_WORKSPACE}/../mdb" /mdb
   - sleep 10
-  - ls -lR rockylinux9
+  - ls -lR ubuntu26.04
   - source /mdb/verylongdirnameforverystrangecpackbehavior/storage/columnstore/columnstore/VERSION
     && CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH}
-    && aws s3 rm s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/
+    && aws s3 rm $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/
     --recursive --exclude "*" --include "*columnstore*.deb" --include "*columnstore*.rpm"
     --exclude "*$${CURRENT_VERSION}*.deb" --exclude "*$${CURRENT_VERSION}*.rpm" --only-show-errors
-  - aws s3 sync rockylinux9/ s3://cspkg/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9
+  - aws s3 sync ubuntu26.04/ $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04
     --only-show-errors
-  - 'echo "Data uploaded to: https://cspkg.s3.amazonaws.com/index.html?prefix=stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8-enterprise/amd64/rockylinux9/"'
+  - 'echo "Data uploaded to: $${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}/stable-23.10/pull_request/$${CI_PIPELINE_NUMBER}/11.8/amd64/ubuntu26.04/"'
   depends_on:
   - mtrlog
   - createrepo

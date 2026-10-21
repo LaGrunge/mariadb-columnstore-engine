@@ -180,6 +180,25 @@ local awsEnv = {
 
 local dockerSocket = '/var/run/docker.sock:/var/run/docker.sock';
 
+// Where packages, test logs and the compiler cache go. By default the
+// MariaDB cspkg / cs-sccache buckets. A CI server can redirect them without a
+// change here by exporting, to every step:
+//
+//   STRATIM_PKGS_S3         s3:// root for packages and logs
+//   STRATIM_PKGS_URL        https:// root the test containers install from
+//   STRATIM_SCCACHE_BUCKET  bucket for sccache
+//
+// Under them every repository gets its own prefix (<root>/<owner>/<repo>/),
+// so one CI user per repository can be limited to its own objects. The
+// values are shell expansions, resolved when the step runs.
+local pkgsS3Root = '$${STRATIM_PKGS_S3:-s3://cspkg}$${STRATIM_PKGS_S3:+/$${CI_REPO}}';
+local pkgsUrlRoot = '$${STRATIM_PKGS_URL:-https://cspkg.s3.amazonaws.com}$${STRATIM_PKGS_URL:+/$${CI_REPO}}';
+local sccacheEnv = [
+  'export SCCACHE_BUCKET="$${STRATIM_SCCACHE_BUCKET:-cs-sccache}"',
+  'export SCCACHE_REGION=us-east-1',
+  'export SCCACHE_S3_USE_SSL=true',
+];
+
 // ---------------------------------------------------------------------------
 // Pipeline.
 //
@@ -219,13 +238,15 @@ local Pipeline(spec) = {
   local branchp = current_branch + '/',
   local eventDir = event + '/$${CI_PIPELINE_NUMBER}',
 
-  local packages_url = 'https://cspkg.s3.amazonaws.com/' + branchp + eventDir + '/' + server,
-  local publish_pkg_url = 'https://cspkg.s3.amazonaws.com/index.html?prefix=' + branchp + eventDir + '/' + server + '/' + arch + '/' + result + '/',
-  local repo_pkg_url_no_res = 'https://cspkg.s3.amazonaws.com/' + branchp + eventDir + '/' + server + '/' + arch + '/',
+  local packages_url = pkgsUrlRoot + '/' + branchp + eventDir + '/' + server,
+  local repo_pkg_url_no_res = pkgsUrlRoot + '/' + branchp + eventDir + '/' + server + '/' + arch + '/',
 
   local server_remote = if std.endsWith(server, 'enterprise')
     then 'https://github.com/mariadb-corporation/MariaDBEnterprise'
     else 'https://github.com/MariaDB/server',
+
+  // MariaDBEnterprise is private and needs a token; MariaDB/server does not.
+  local needsToken = std.endsWith(server, 'enterprise'),
 
   local pipeline = self,
 
@@ -252,7 +273,7 @@ local Pipeline(spec) = {
       // package number never leaves two candidate versions in one repo.
       'source ' + mdbRoot + '/' + builddir + '/storage/columnstore/columnstore/VERSION && ' +
       'CURRENT_VERSION=$${COLUMNSTORE_VERSION_MAJOR}.$${COLUMNSTORE_VERSION_MINOR}.$${COLUMNSTORE_VERSION_PATCH} && ' +
-      'aws s3 rm s3://cspkg/' + branchp + eventPath + '/' + server + '/' + arch + '/' + result + '/ ' +
+      'aws s3 rm ' + pkgsS3Root + '/' + branchp + eventPath + '/' + server + '/' + arch + '/' + result + '/ ' +
       '--recursive ' +
       '--exclude "*" ' +
       '--include "*columnstore*.deb" ' +
@@ -261,8 +282,8 @@ local Pipeline(spec) = {
       '--exclude "*$${CURRENT_VERSION}*.rpm" ' +
       '--only-show-errors',
 
-      'aws s3 sync ' + result + '/ s3://cspkg/' + branchp + eventPath + '/' + server + '/' + arch + '/' + result + ' --only-show-errors',
-      'echo "Data uploaded to: ' + publish_pkg_url + '"',
+      'aws s3 sync ' + result + '/ ' + pkgsS3Root + '/' + branchp + eventPath + '/' + server + '/' + arch + '/' + result + ' --only-show-errors',
+      'echo "Data uploaded to: ' + pkgsS3Root + '/' + branchp + eventPath + '/' + server + '/' + arch + '/' + result + '/"',
     ],
   } + alwaysRun,
 
@@ -611,8 +632,7 @@ local Pipeline(spec) = {
         SERVER_REF: '${SERVER_REF}',
         SERVER_REMOTE: '${SERVER_REMOTE}',
         SERVER_SHA: '${SERVER_SHA}',
-        GITHUB_TOKEN: { from_secret: 'github_token' },
-      },
+      } + (if needsToken then { GITHUB_TOKEN: { from_secret: 'github_token' } } else {}),
       commands: echo_running_on + [
         ': "$${SERVER_REF:=' + server + '}"',
         ': "$${SERVER_REMOTE:=' + server_remote + '}"',
@@ -626,9 +646,11 @@ local Pipeline(spec) = {
         // (rather than a token-bearing remote URL) keeps the token out of
         // .git/config, which travels with the build tree, and still covers the
         // recursive submodule clones, which fetch their own URLs.
+      ] + (if needsToken then [
         ': "$${GITHUB_TOKEN:?github_token secret is required to clone ' + server_remote + '}"',
         'printf "machine github.com login x-access-token password %s\\n" "$$GITHUB_TOKEN" > $$HOME/.netrc',
         'chmod 600 $$HOME/.netrc',
+      ] else []) + [
         // The volume is reused across runs of this variant; start clean.
         'rm -rf /mdb/* || true',
         'mkdir -p ' + mdbRoot + '/' + builddir + ' && cd ' + mdbRoot + '/' + builddir,
@@ -648,13 +670,12 @@ local Pipeline(spec) = {
       image: img,
         environment: awsEnv {
         DEBIAN_FRONTEND: 'noninteractive',
-        SCCACHE_BUCKET: 'cs-sccache',
-        SCCACHE_REGION: 'us-east-1',
-        SCCACHE_S3_USE_SSL: 'true',
-        SCCACHE_S3_KEY_PREFIX: result + current_branch + server + arch,
       },
       // errorprone if we pass --custom-cmake-flags twice, the last one will win
-      commands: ['mkdir ' + mdbRoot + '/' + builddir + '/' + result] +
+      commands: ['mkdir ' + mdbRoot + '/' + builddir + '/' + result] + sccacheEnv + [
+                  'export SCCACHE_S3_KEY_PREFIX="$${STRATIM_SCCACHE_BUCKET:+sccache/$${CI_REPO}/}' +
+                  result + current_branch + server + arch + '"',
+                ] +
                 customEnvCommands(envKey) +
                 [
                   'bash -c "set -o pipefail && ' +
@@ -732,8 +753,8 @@ local Pipeline(spec) = {
 // fast test groups only.  Everything else belongs to nightly.
 // ---------------------------------------------------------------------------
 local prMatrix = [
-  { platform: 'ubuntu:26.04', server: '11.8-enterprise', event: 'pull_request', testGroups: ['smoke', 'cmapi', 'mtr'] },
-  { platform: 'rockylinux:9', server: '11.8-enterprise', event: 'pull_request', testGroups: ['smoke', 'cmapi', 'mtr'] },
+  { platform: 'ubuntu:26.04', server: '11.8', event: 'pull_request', testGroups: ['smoke', 'cmapi', 'mtr'] },
+  { platform: 'rockylinux:9', server: '11.8', event: 'pull_request', testGroups: ['smoke', 'cmapi', 'mtr'] },
 ];
 
 // ---------------------------------------------------------------------------

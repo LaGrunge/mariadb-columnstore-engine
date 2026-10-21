@@ -14,7 +14,7 @@ ubuntu|debian)
     cat /etc/apt/sources.list.d/repo.list
     cat << EOF > /etc/apt/preferences
 Package: *
-Pin: origin cspkg.s3.amazonaws.com
+Pin: origin $(echo "${PACKAGES_URL}" | sed 's#^[a-z]*://\([^/]*\).*#\1#')
 Pin-Priority: 1700
 EOF
     apt update -y
