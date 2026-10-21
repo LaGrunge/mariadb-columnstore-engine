@@ -317,6 +317,11 @@ modify_packaging() {
         # Disable dh_missing strict check for missing files
         sed -i 's/--fail-missing/--list-missing/' debian/rules
 
+        # autobake-deb.sh adds a mariadb-plugin-duckdb package whenever
+        # storage/duckdb/debian exists, but the plugin is not built
+        # (-DPLUGIN_DUCKDB=NO), so dh_install would miss its files
+        rm -rf storage/duckdb/debian
+
         # Tweak debian packaging stuff
         for i in mariadb-plugin libmariadbd; do
             sed -i "/Package: $i.*/,/^$/d" debian/control
@@ -353,6 +358,16 @@ modify_packaging() {
             "usr/share/mariadb/not_supported/wsrep_info.so"
             "usr/share/mariadb/wsrep.cnf"
             "usr/share/mariadb/wsrep_notify"
+            # Built only with the embedded server, which is off
+            # (-DWITH_EMBEDDED_SERVER=NO), and with plugins that are off; the
+            # patterns above match whole file names only, so list them in full.
+            "usr/bin/mariadb-client-test-embedded"
+            "usr/bin/mariadb-test-embedded"
+            "usr/bin/mysql_client_test_embedded"
+            "usr/bin/mysqltest_embedded"
+            "usr/bin/test-connect-t"
+            "usr/lib/mysql/plugin/ha_sphinx.so"
+            "usr/lib/mysql/plugin/wsrep_info.so"
         )
 
         for file in "${FILES_TO_REMOVE[@]}"; do
